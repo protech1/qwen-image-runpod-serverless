@@ -48,6 +48,14 @@ python scripts/generate.py --prompt 'a cat sitting on a windowsill' --turbo --wi
 python scripts/generate.py --prompt 'a red ceramic mug on a white table' --no-turbo --seed 12345
 ```
 
+Experimental one-reference editing (normal or Turbo uses the same base weights):
+
+```sh
+python scripts/generate.py --prompt 'change the shirt to blue' --image ./reference.png --turbo
+```
+
+The client sends a base64 image through the official worker's `input.images` field. Edit output size derives from the reference (the Qwen text encoder uses a 1024-pixel resolution target); explicit nondefault `--width` and `--height` are rejected rather than silently ignored. References must be PNG/JPEG/WebP and fit the `/run` payload limit. Editing has its own normal and Turbo workflow; live editing proof is recorded separately in the deployment notes.
+
 Results go under `outputs/` and the CLI prints queue/execution timing and an approximate charge based on the configured hourly price. The default is Turbo. `scripts/prepare_request.py` converts a simple request such as `examples/request-normal.json` or `examples/request-turbo.json` into the official worker shape `{ "input": { "workflow": {...}, "images": [...] } }` so clients need not edit node IDs. `scripts/test_endpoint.py` provides static validation and optional endpoint exercise. RunPod's direct HTTP API always accepts a workflow; the simple `{prompt,width,height,seed,turbo}` shape is **client-side**, not a server-side JSON endpoint. A direct curl must POST the generated request body:
 
 ```sh
@@ -56,7 +64,7 @@ curl -H "Authorization: Bearer $RUNPOD_API_KEY" -H 'Content-Type: application/js
   -d @/tmp/qwen-job.json "https://api.runpod.ai/v2/$RUNPOD_ENDPOINT_ID/run"
 ```
 
-Poll `GET https://api.runpod.ai/v2/$RUNPOD_ENDPOINT_ID/status/<job-id>` until `COMPLETED`. Read `output.images[0].data` (base64), not the old pre-v5 `output.message` field. The CLI handles submission/polling/PNG decoding and technical failures. The request examples can also be passed to the preparation script if supported by its arguments.
+Poll `GET https://api.runpod.ai/v2/$RUNPOD_ENDPOINT_ID/status/<job-id>` until `COMPLETED`. Read `output.images[0].data` (base64), not the old pre-v5 `output.message` field. The CLI handles submission/polling/PNG decoding and technical failures. Run `python scripts/prepare_request.py examples/request-turbo.json` to prepare a saved example, or `python scripts/test_endpoint.py` for offline validation without a paid job.
 
 ## Limits and maintenance
 
