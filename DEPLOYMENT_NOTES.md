@@ -19,27 +19,28 @@
 | Endpoint name / ID | `qwen-image-2-1-viggle-turbo`, `w62793qc98rn7x`, Queue |
 | Selected pool / GPU | `AMPERE_24`, RTX 3090 or RTX A5000 (both 24 GB, both $0.69/h serverless); RTX L4/MIG excluded. Initial RTX 3090 LOW stock, A5000 HIGH stock; first job ran on RTX 3090 at `EU-CZ-1` |
 | Qwen model and Viggle revisions | See `versions.json` |
-| Idle workers / FlashBoot / scale-to-zero | `min=0`, `max=1`, `idleTimeout=120`, `flashboot=FLASHBOOT`, 1 GPU, disk 45 GB confirmed by get-endpoint. Initial 5s idle timeout caused the container to stop shortly after first job; increased to 120s to allow short bursts without standing workers. Initial startup had three worker records (two THROTTLED, one later executed) despite `max=1`; one executing worker was observed. Final scale-to-zero not yet observed |
+| Idle workers / FlashBoot / scale-to-zero | Final `min=0`, `max=1`, `idleTimeout=5`, `flashboot=FLASHBOOT`, 1 GPU, 45 GB ephemeral disk confirmed by get-endpoint. A brief 120s timeout during burst tests was restored to 5s afterward. System logs showed prior container stopped at 02:38:12Z and removed at 02:38:17Z; endpoint health reported 0 RUNNING workers (a THROTTLED worker record remained). Later Turbo job started a fresh container on worker `dw1rd5honlms17` after loading cached image, then completed. RunPod temporarily listed up to three worker records including THROTTLED during startup despite configured `max=1`; only one executing worker observed |
 | Network volume | `networkVolumes=[]` on endpoint, account volume list empty |
-| Normal, Turbo, cold-start, editing | Turbo 512px job `ae37198f-7641-4485-a1c8-cde63a049785-u1` **COMPLETED**, base64 PNG, queue 487.564s / execution 16.256s. First normal job `de344ae0-a48d-4a4f-9bc4-433c0d53e505-u1` **FAILED** `executionTimeout exceeded` after 563.962s queue + 12.277s execution; implicit per-job deadline included queue delay. Retest normal job `ac07cfbf-246b-467f-95f5-be8e05bee38a-u2` **COMPLETED** with explicit 1,200,000ms policy: `normal_00001_.png`, queue 12.313s / execution 24.899s. Turbo reference edit `ba8dd5b5-a185-4600-9884-614f988c732a-u1` **COMPLETED**: uploaded 512px PNG, output `turbo_edit_00001_.png`, queue 0.127s / execution 17.235s. Post-idle cold start pending |
+| Normal, Turbo, cold-start, editing | First Turbo 512px `ae37198f-7641-4485-a1c8-cde63a049785-u1` **COMPLETED** (487.564s queue / 16.256s execution, base64 PNG). First normal `de344ae0-a48d-4a4f-9bc4-433c0d53e505-u1` **FAILED** `executionTimeout exceeded` after 563.962s queue + 12.277s execution; explicit 1,200,000ms per-job policy fixed the deadline. Normal retry `ac07cfbf-246b-467f-95f5-be8e05bee38a-u2` **COMPLETED** (12.313s queue / 24.899s execution, base64 PNG). Turbo one-reference edit `ba8dd5b5-a185-4600-9884-614f988c732a-u1` **COMPLETED** (0.127s queue / 17.235s execution, uploaded 512px PNG and received base64 PNG). Post-idle cold Turbo `88c8d0bf-dd6c-4d32-b838-853d6e6c57f6-u1` **COMPLETED** (610.659s queue / 15.017s execution, base64 PNG). Normal editing and local CLI authenticated submission were not exercised |
 | Initial remaining credits | Unknown; available-credit balance not returned by catalog/billing reads |
 
 ## Paid runs and cost accounting
 
-| Test | Billed duration | Estimated cost | Cumulative |
+| Test | Reported execution / queue duration | Execution-only estimate at $0.69/h | Running estimate |
 |---|---:|---:|---:|
-| First Turbo 512px | 16.256s execution, 487.564s queue delay; separately billed startup unknown | $0.00312 GPU execution at $0.69/h, plus any billed startup/disk (RunPod billing reports $0 so far; lagging) | At least $0.00312 estimated |
-| First normal 512px (timed out) | 12.277s execution, 563.962s queued | $0.00235 GPU execution, plus unknown startup/idle | At least $0.00547 estimated |
-| Normal 512px (successful retry) | 24.899s execution, 12.313s queued | $0.00477 GPU execution + unknown startup/idle | At least $0.01024 estimated |
-| Turbo one-reference edit | 17.235s execution, 0.127s queued | $0.00330 GPU execution + unknown startup/idle | At least $0.01354 estimated |
+| First Turbo 512px | 16.256s / 487.564s | $0.00312 | $0.00312 |
+| First normal 512px (timed out) | 12.277s / 563.962s | $0.00235 | $0.00547 |
+| Normal 512px (successful retry) | 24.899s / 12.313s | $0.00477 | $0.01024 |
+| Turbo one-reference edit | 17.235s / 0.127s | $0.00330 | $0.01354 |
+| Post-idle cold Turbo 512px | 15.017s / 610.659s | $0.00288 | $0.01642 |
 
-The first GPU container started at 02:18:26Z and stopped at 02:19:29Z (~63s), which bounds a simple $0.69/h whole-container GPU estimate near $0.0121 if all startup/idle seconds are billable. The eight-minute image pull occurred before its container started; billing endpoint has not yet reported this period. Do not interpret $0 returned from lagging billing as a free job.
+**Actual RunPod Serverless billing** for this endpoint at the latest read: GPU **$0.05738480819854885**, disk **$0.0010416668374091387**, fee $0, **total $0.05842647503595799** for the current day. This is a point-in-time figure and may lag the final post-idle job. The execution-only estimate is not the bill: startup and warm-idle worker time add charges. No network volume exists, so no recurring network-volume cost. The first container ran from 02:18:26Z to 02:19:29Z; the initial 28.45 GB image pull drove ~8 minutes of queue delay, and a later cache hydration took ~10 minutes. Budget remains well under $2 and the hard $4 cap at the latest billing read.
 
 If cumulative estimated spend approaches $3, avoid any nonessential GPU test. **Stop paid execution before $4**. Billing duration may differ from queue delay plus execution; use RunPod billing for final figures. Target < $2 total, leave at least ~$1 for user use.
 
 ## Known risks / troubleshooting
 
-- Viggle's official ComfyUI port documents INT8/bf16 native transformer, not GGUF + unmerged LoRA. A successful import is not proof that the runtime hooks work on GGUF; read worker logs on a failed job before another GPU run.
+- Viggle's official ComfyUI port documents INT8/bf16 native transformer, not GGUF + unmerged LoRA; the live 512px Turbo and edit jobs here completed with the GGUF Q4 denoiser and unmerged LoRA. Other resolutions and extended prompts are not proven by these jobs.
 - Official Viggle workflow with model resident and enhancer enabled peaks at 26 GB at 1248×832. This build omits the enhancer; rely on documented ComfyUI automatic offload on 24 GB and inspect actual errors before changing GPU.
 - Published official base is already ~14.67 GB unpacked; baked files add ~14.9 GB. GitHub runner disk and GHCR per-layer 10 GB limit motivate runner cleanup and one file per layer. Any failed CI build should be diagnosed without starting RunPod workers.
-- First cold worker may need substantial image-pull time. Only a completed real job proves the API contract, and scale-to-zero plus a subsequent cold Turbo generation prove intended operating mode.
+- A cold worker may need substantial image-pull/cache hydration time. Set `policy.executionTimeout=1200000` per job and allow at least 1,500s local polling. The initial normal job used the implicit deadline and expired immediately after its long queue delay; the explicit-policy retry succeeded.

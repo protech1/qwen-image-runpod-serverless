@@ -35,7 +35,7 @@ Downloads occur at build time; no Hugging Face token was needed for the selected
 
 ### RunPod configuration
 
-The live Queue endpoint **`w62793qc98rn7x`** (`qwen-image-2-1-viggle-turbo`) uses that pinned digest, NVIDIA `AMPERE_24` with RTX 3090 **or** RTX A5000 (both 24 GB, $0.69/hour serverless; A5000 had higher stock), one GPU, workers min **0**, max **1**, idle timeout **120s**, `flashboot=FLASHBOOT`, 45 GB ephemeral container disk, no network volume, no S3 env, and no public port. No background services or other recurring RunPod resources are required. A queue endpoint requires an API key; do not share it. The first 512px Turbo job completed after **487.564s queue delay** (large first-time image pull) and **16.256s execution**. Host cache and capacity affect later cold starts.
+The live Queue endpoint **`w62793qc98rn7x`** (`qwen-image-2-1-viggle-turbo`) uses that pinned digest, NVIDIA `AMPERE_24` with RTX 3090 **or** RTX A5000 (both 24 GB, $0.69/hour serverless; A5000 had higher stock), one GPU, workers min **0**, max **1**, idle timeout **5s**, `flashboot=FLASHBOOT`, 45 GB ephemeral container disk, no network volume, no S3 env, and no public port. No background services or other recurring RunPod resources are required. A queue endpoint requires an API key; do not share it. A 512px Turbo job completed after **487.564s queue delay** (first image pull) and **16.256s execution**; a post-idle cold restart completed after **610.659s queue delay** and **15.017s execution**. Cached image hydration and GPU availability can dominate cold starts. See the measured **$0.058426475** point-in-time billed total in the deployment log.
 
 To delete: RunPod Console → Serverless → select this endpoint → Delete; deletion is permanent. Scaling min 0 eliminates intentionally standing GPU cost but does not delete the endpoint. Avoid raising max >1 or adding a paid network volume without an explicit cost decision. Large baked images can increase cold pull time; FlashBoot and host cache availability affect it.
 
@@ -45,10 +45,10 @@ Set `RUNPOD_API_KEY` in your shell (never commit `.env`); set `RUNPOD_ENDPOINT_I
 
 ```sh
 python scripts/generate.py --prompt 'a cat sitting on a windowsill' --turbo --width 512 --height 512
-python scripts/generate.py --prompt 'a red ceramic mug on a white table' --no-turbo --seed 12345
+python scripts/generate.py --prompt 'a red ceramic mug on a white table' --no-turbo --width 512 --height 512 --seed 12345
 ```
 
-Experimental one-reference editing (normal or Turbo uses the same base weights):
+One-reference editing (Turbo verified live; normal editing not yet exercised):
 
 ```sh
 python scripts/generate.py --prompt 'change the shirt to blue' --image ./reference.png --turbo
