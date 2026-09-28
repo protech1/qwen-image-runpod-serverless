@@ -31,20 +31,20 @@ GitHub Actions `Build and publish amd64 worker` is **manual only** (`workflow_di
 docker build --platform linux/amd64 -t ghcr.io/protech1/qwen-image-runpod-serverless:0.1.0 .
 ```
 
-Downloads occur at build time; no Hugging Face token was needed for the selected public files. Keep GHCR package public for unauthenticated RunPod pulls (or configure a private registry credential). Expect a large image: the official base is already ~14.67 GB unpacked and the four model assets total ~14.9 GB. Do not mistake registry transfer size for unpacked container disk. The published amd64 digest and final image size must be recorded in [`DEPLOYMENT_NOTES.md`](DEPLOYMENT_NOTES.md) after the build.
+Downloads occur at build time; no Hugging Face token was needed for the selected public files. Keep GHCR package public for unauthenticated RunPod pulls (or configure a private registry credential). The published Linux/amd64 image is `ghcr.io/protech1/qwen-image-runpod-serverless@sha256:90fdfc38cbccda7f63a12bbc3c8a356caee05479d4e8166dcf836b41a6ccde4b`; its OCI manifest totals **28,445,445,893 compressed layer bytes**. The official base alone is ~14.67 GB unpacked and the four model assets total ~14.9 GB. Do not mistake registry transfer size for unpacked container disk. See [`DEPLOYMENT_NOTES.md`](DEPLOYMENT_NOTES.md) for the build and measured jobs.
 
 ### RunPod configuration
 
-Queue endpoint, image tag/digest from the successful build, NVIDIA `AMPERE_24` pool (RTX 3090 if pinned), one GPU, workers min **0**, max **1**, idle timeout **5s**, `flashboot=FLASHBOOT` if supported, no network volume, no S3 env, no public port. Allow an adequately sized ephemeral container disk (at least 45 GB for the unpacked CUDA base and models). The RTX 3090 was listed at **$0.69/hour serverless** during preparation; verify live pricing before deployment. No background services or other recurring RunPod resources are required. A queue endpoint normally requires an API key; do not share it.
+The live Queue endpoint **`w62793qc98rn7x`** (`qwen-image-2-1-viggle-turbo`) uses that pinned digest, NVIDIA `AMPERE_24` with RTX 3090 **or** RTX A5000 (both 24 GB, $0.69/hour serverless; A5000 had higher stock), one GPU, workers min **0**, max **1**, idle timeout **120s**, `flashboot=FLASHBOOT`, 45 GB ephemeral container disk, no network volume, no S3 env, and no public port. No background services or other recurring RunPod resources are required. A queue endpoint requires an API key; do not share it. The first 512px Turbo job completed after **487.564s queue delay** (large first-time image pull) and **16.256s execution**. Host cache and capacity affect later cold starts.
 
 To delete: RunPod Console → Serverless → select this endpoint → Delete; deletion is permanent. Scaling min 0 eliminates intentionally standing GPU cost but does not delete the endpoint. Avoid raising max >1 or adding a paid network volume without an explicit cost decision. Large baked images can increase cold pull time; FlashBoot and host cache availability affect it.
 
 ## Request and CLI
 
-Set `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` in your shell (never commit `.env`). Use Python 3.10+ and standard library only:
+Set `RUNPOD_API_KEY` in your shell (never commit `.env`); set `RUNPOD_ENDPOINT_ID=w62793qc98rn7x`. Use Python 3.10+ and standard library only:
 
 ```sh
-python scripts/generate.py --prompt 'a cat sitting on a windowsill' --turbo --width 1024 --height 1024
+python scripts/generate.py --prompt 'a cat sitting on a windowsill' --turbo --width 512 --height 512
 python scripts/generate.py --prompt 'a red ceramic mug on a white table' --no-turbo --seed 12345
 ```
 
@@ -54,9 +54,9 @@ Experimental one-reference editing (normal or Turbo uses the same base weights):
 python scripts/generate.py --prompt 'change the shirt to blue' --image ./reference.png --turbo
 ```
 
-The client sends a base64 image through the official worker's `input.images` field. Edit output size derives from the reference (the Qwen text encoder uses a 1024-pixel resolution target); explicit nondefault `--width` and `--height` are rejected rather than silently ignored. References must be PNG/JPEG/WebP and fit the `/run` payload limit. Editing has its own normal and Turbo workflow; live editing proof is recorded separately in the deployment notes.
+The client sends a base64 image through the official worker's `input.images` field. Edit output size derives from the reference (the Qwen text encoder uses a 1024-pixel resolution target); explicit nondefault `--width` and `--height` are rejected rather than silently ignored. References must be PNG/JPEG/WebP and fit the `/run` payload limit. Editing has its own normal and Turbo workflow; **Turbo editing succeeded live** with a 512×512 PNG reference and returned `turbo_edit_00001_.png` (see deployment notes). Normal editing is structurally present but has not been exercised live.
 
-Results go under `outputs/` and the CLI prints queue/execution timing and an approximate charge based on the configured hourly price. The default is Turbo. `scripts/prepare_request.py` converts a simple request such as `examples/request-normal.json` or `examples/request-turbo.json` into the official worker shape `{ "input": { "workflow": {...}, "images": [...] } }` so clients need not edit node IDs. `scripts/test_endpoint.py` provides static validation and optional endpoint exercise. RunPod's direct HTTP API always accepts a workflow; the simple `{prompt,width,height,seed,turbo}` shape is **client-side**, not a server-side JSON endpoint. A direct curl must POST the generated request body:
+Results go under `outputs/` and the CLI prints queue/execution timing and an approximate charge based on the configured hourly price. The default is Turbo. `scripts/prepare_request.py` converts a simple request such as `examples/request-normal.json` or `examples/request-turbo.json` into the official worker shape `{ "input": { "workflow": {...}, "images": [...] }, "policy": { "executionTimeout": 1200000 } }` so clients need not edit node IDs. The explicit 20-minute deadline accommodates large cold-pull queue delays that can exhaust the implicit per-job timeout. `scripts/test_endpoint.py` provides static validation and optional endpoint exercise. RunPod's direct HTTP API always accepts a workflow; the simple `{prompt,width,height,seed,turbo}` shape is **client-side**, not a server-side JSON endpoint. A direct curl must POST the generated request body:
 
 ```sh
 python scripts/prepare_request.py --prompt 'a red ceramic mug' --turbo > /tmp/qwen-job.json
@@ -68,6 +68,6 @@ Poll `GET https://api.runpod.ai/v2/$RUNPOD_ENDPOINT_ID/status/<job-id>` until `C
 
 ## Limits and maintenance
 
-The official Viggle ComfyUI port was tested with native INT8 model files, not with a GGUF Q4 transformer plus its unmerged LoRA. GGUF patcher hooks are structurally plausible but **inference compatibility must be proven by a live job**; static checks and image builds cannot establish it. Viggle reports ~26 GB resident peak with INT8 transformer/encoder and prompt enhancer at 1248×832, so a 24 GB card requires offloading and modest resolutions. Editing with reference images is supported only if corresponding edit workflows and a successful live edit test are present; do not claim otherwise. Very small text and complex identity edits are weaker in Turbo. Keep resolution conservative until GPU memory behavior is observed. RunPod job request size limits make large base64 reference images impractical.
+The official Viggle ComfyUI port was tested with native INT8 model files, not GGUF Q4 transformer plus its unmerged LoRA; **512×512 Turbo and normal generations and one Turbo reference edit succeeded live** with the GGUF workflows here. Viggle reports ~26 GB resident peak with INT8 transformer/encoder and prompt enhancer at 1248×832, so a 24 GB card requires offloading and modest resolutions. Normal-mode editing is untested. Very small text and complex identity edits are weaker in Turbo. Keep resolution conservative until GPU memory behavior is observed. RunPod job request size limits make large image uploads unsuitable for direct base64; no S3 storage is provisioned.
 
 To update Qwen/Viggle: inspect current source model card, license, actual filenames, node input schemas and schedule first; pin new revision + expected SHA256/byte count in `versions.json`, update workflows if necessary, rebuild amd64 manually under a **new tag**, validate CPU node imports, then deploy that digest and make one budgeted job. Never stack a full Viggle Turbo student checkpoint with the Viggle LoRA. See [`DEPLOYMENT_NOTES.md`](DEPLOYMENT_NOTES.md) for measured timings, billed costs, build issues and exact deployment state.

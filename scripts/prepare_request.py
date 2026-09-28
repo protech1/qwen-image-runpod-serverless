@@ -198,7 +198,8 @@ def prepare_request(request, workflow_dir=WORKFLOWS):
         workflow[SIZE_NODE]["inputs"].update(width=plain["width"], height=plain["height"])
     seed_key = "noise_seed" if plain["turbo"] else "seed"
     workflow[SEED_NODE]["inputs"][seed_key] = plain["seed"]
-    payload = {"input": {"workflow": workflow}}
+    # The default per-job deadline can expire while a large image is cold-pulling.
+    payload = {"input": {"workflow": workflow}, "policy": {"executionTimeout": 1_200_000}}
     if editing:
         image_nodes = validate_workflow(workflow, turbo=plain["turbo"], editing=True)
         if len(image_nodes) != len(plain["images"]):

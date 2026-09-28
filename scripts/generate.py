@@ -54,7 +54,7 @@ def _job_id(result):
     return job_id
 
 
-def submit_and_poll(payload, key, endpoint_id, *, poll_interval=5, max_wait=900):
+def submit_and_poll(payload, key, endpoint_id, *, poll_interval=5, max_wait=1500):
     if not key:
         raise JobError("RUNPOD_API_KEY is required for a live job")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", endpoint_id or ""):
@@ -137,7 +137,7 @@ def result_summary(result, files):
     return summary
 
 
-def run_job(plain_request, *, output_dir="outputs", poll_interval=5, max_wait=900):
+def run_job(plain_request, *, output_dir="outputs", poll_interval=5, max_wait=1500):
     payload = prepare_request(plain_request)
     result = submit_and_poll(payload, os.environ.get("RUNPOD_API_KEY"),
                              os.environ.get("RUNPOD_ENDPOINT_ID"),
@@ -158,7 +158,7 @@ def _parser():
     parser.add_argument("--dry-run", action="store_true", help="Print official worker payload without submitting")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--poll-interval", type=float, default=5)
-    parser.add_argument("--max-wait", type=float, default=900)
+    parser.add_argument("--max-wait", type=float, default=1500)
     return parser
 
 
